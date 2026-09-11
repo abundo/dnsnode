@@ -1,0 +1,6 @@
+---
+# Example dnsnode configuration file
+# token is mandatory
+# url is optional. If not specified, the URL specified in the API documentation is used
+token: 
+url:
