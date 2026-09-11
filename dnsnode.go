@@ -8,6 +8,7 @@ package dnsnode
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,19 @@ var ALLOWED_ALGORITMS = map[string]int{
 	"hmac-sha256": 1,
 	"hmac-sha512": 1,
 }
+
+// Minimum key length, in bytes, per algorithm. Per RFC 4635, a TSIG key
+// should be at least as long as the digest produced by its hash algorithm.
+var ALGORITHM_MIN_KEY_BYTES = map[string]int{
+	"hmac-md5":    16,
+	"hmac-sha1":   20,
+	"hmac-sha256": 32,
+	"hmac-sha512": 64,
+}
+
+// Fallback minimum key length, in bytes, used when the algorithm is unknown
+// (e.g. a key-only update that leaves the algorithm unchanged).
+const DEFAULT_MIN_KEY_BYTES = 16
 
 var Loglevels = map[string]log.Level{
 	"debug":   log.DebugLevel,
@@ -117,14 +131,27 @@ func New(param DnsNodeParam) *DnsNodeClient {
 //   Internal Utils
 // ---------------------------------------------------------------------------
 
-// Verify that algoritm is supported
-// An empty alg is allowed, it signals "leave unchanged" for partial updates
+// Verify that algorithm is supported and, if given, that key is validly
+// formatted (base64) and long enough for the algorithm.
+// An empty alg or key is allowed, it signals "leave unchanged" for partial updates
 func verifyAlgKey(alg string, key string) error {
-	if alg == "" {
-		return nil
+	if alg != "" {
+		if _, ok := ALLOWED_ALGORITMS[alg]; !ok {
+			return fmt.Errorf("algorithm %q not recognized", alg)
+		}
 	}
-	if _, ok := ALLOWED_ALGORITMS[alg]; !ok {
-		return fmt.Errorf("algorithm %q not recognized", alg)
+	if key != "" {
+		decoded, err := base64.StdEncoding.DecodeString(key)
+		if err != nil {
+			return fmt.Errorf("key is not valid base64: %w", err)
+		}
+		minLen := DEFAULT_MIN_KEY_BYTES
+		if alg != "" {
+			minLen = ALGORITHM_MIN_KEY_BYTES[alg]
+		}
+		if len(decoded) < minLen {
+			return fmt.Errorf("key is too short: decoded key is %d bytes, need at least %d bytes", len(decoded), minLen)
+		}
 	}
 	return nil
 }
